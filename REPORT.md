@@ -1,4 +1,4 @@
-# Assignment 2 Report — StatefulSet Migration and Ingress
+# Assignment 2 Report: StatefulSet Migration and Ingress
 
 ## 1. Introduction
 
