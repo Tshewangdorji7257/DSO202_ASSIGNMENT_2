@@ -1,475 +1,292 @@
-# DSO202 — Assignment 2
-## Kubernetes Application Deployment with Ingress
-
-**Student:** Tshewang Dorji  
-**Application:** Field Log — Task Tracker  
-**Platform:** Kubernetes on kind  
-**Namespace:** dso202-assignment-01  
-**Ingress:** NGINX Ingress  
-**Database:** PostgreSQL StatefulSet + PVC
-
----
+# Assignment 2 Report — StatefulSet Migration and Ingress
 
 ## 1. Introduction
 
-This assignment demonstrates the deployment of a multi-tier task-tracking
-application on a local Kubernetes cluster created using kind.
+This assignment focused on migrating the database from a Deployment-based setup to a Kubernetes StatefulSet and exposing the application through an NGINX Ingress controller.
 
-The application consists of:
-- Frontend
-- Backend API
-- PostgreSQL database
+The main objectives were to:
 
-Kubernetes Services provide communication between the application
-components, while NGINX Ingress provides HTTP routing through a single
-entry point.
-
----
-
-## 2. Objectives
-
-The main objectives of this assignment were:
-
-- Deploy the application components in Kubernetes.
-- Configure Kubernetes Services.
-- Deploy PostgreSQL using a StatefulSet.
-- Configure persistent storage using a PVC.
-- Install and configure NGINX Ingress.
-- Route frontend and backend traffic through Ingress.
-- Verify frontend, backend and database connectivity.
-- Test the final application.
+* Migrate the PostgreSQL database from a Deployment to a StatefulSet.
+* Create persistent storage using a PersistentVolumeClaim.
+* Verify that database data remains available after deleting and recreating the StatefulSet.
+* Install and configure the NGINX Ingress controller.
+* Create an Ingress resource for the frontend and backend services.
+* Verify that the complete application works through the Ingress.
+* Test backend API access through the Ingress.
 
 ---
 
-## 3. Final Kubernetes Environment
+# 2. Initial Application Setup
 
-The final namespace contains:
+Before starting the migration, the application was running with a frontend, backend, and PostgreSQL database inside the Kubernetes cluster.
 
-- Frontend Pod
-- Backend Pod
-- PostgreSQL Pod
-- Frontend NodePort Service
-- Backend ClusterIP Service
-- PostgreSQL Headless Service
-- PostgreSQL PersistentVolumeClaim
-- NGINX Ingress
+The initial application consisted of three main components:
 
-### Evidence 1 — Final Kubernetes Resources
+* **Frontend** — provides the user interface.
+* **Backend** — provides the REST API for managing tasks.
+* **PostgreSQL database** — stores application data.
 
-**Insert Screenshot Here**
+The application was tested before making any changes to ensure that the existing deployment was working correctly.
 
-```powershell
-kubectl get pods,svc,pvc,ingress -n dso202-assignment-01
-````
+![Initial application setup](evidence/image.png)
 
-**Figure 1: Final Pods, Services, PVC and Ingress**
+![Initial application verification](evidence/image-1.png)
 
-The screenshot should show all application components running and the
-database PVC in the Bound state.
+![Application running before migration](evidence/image-2.png)
 
 ---
 
-## 4. PostgreSQL StatefulSet and Persistent Storage
+# 3. Creating a Test Task
 
-PostgreSQL was deployed using a StatefulSet named `db`.
+A test task was created before the database migration. This task was used later to verify that the database data was preserved after migrating to a StatefulSet.
 
-The StatefulSet provides stable identity for the PostgreSQL Pod, while the
-PersistentVolumeClaim provides persistent storage.
+![Task creation](evidence/image-3.png)
 
-The final database configuration showed:
+![Created task](evidence/image-4.png)
 
-* StatefulSet: `db`
-* Ready: `1/1`
-* PVC: `data-db-0`
-* Capacity: `1Gi`
-* Access mode: `RWO`
-* Status: `Bound`
-
-### Evidence 2 — StatefulSet
-
-**Insert Screenshot Here**
-
-```powershell
-kubectl get statefulset -n dso202-assignment-01
-```
-
-**Figure 2: PostgreSQL StatefulSet**
-
-### Evidence 3 — PVC
-
-**Insert Screenshot Here**
-
-```powershell
-kubectl get pvc -n dso202-assignment-01
-```
-
-**Figure 3: PostgreSQL PersistentVolumeClaim**
+The created task provided a reference point for testing database persistence after the migration.
 
 ---
 
-## 5. Backend Service
+# 4. Database Migration to StatefulSet
 
-The backend API is exposed internally using the `backend-svc`
-ClusterIP Service.
+## 4.1 Verify the Database Before Migration
 
-The Service listens on port `8080` and forwards traffic to the backend Pod.
+Before migrating the database, the existing database Deployment and its persistent storage were checked.
 
-### Evidence 4 — Backend Service and Endpoint
+![Database before migration](evidence/image-5.png)
 
-**Insert Screenshot Here**
+![Database resources before migration](evidence/image-6.png)
 
-```powershell
-kubectl get svc backend-svc -n dso202-assignment-01
+A marker task was also created to make it easier to confirm that the existing data was preserved after the migration.
 
-kubectl get endpoints backend-svc -n dso202-assignment-01
-```
-
-**Figure 4: Backend Service and Endpoint**
-
-The endpoint confirmed that the backend Service was connected to the
-running backend Pod.
+![Marker task created](evidence/image-7.png)
 
 ---
 
-## 6. NGINX Ingress Controller
+## 4.2 Copy the Existing Manifests
 
-NGINX Ingress was installed to provide external HTTP routing.
+The existing database manifests were copied so that they could be modified for the StatefulSet migration.
 
-During installation, the controller initially experienced scheduling and
-image-pull problems.
+![Copying the old manifests](evidence/image-8.png)
 
-The control-plane node was labelled:
-
-```powershell
-kubectl label node control-plane ingress-ready=true
-```
-
-The controller image initially experienced a TLS handshake timeout when
-pulling from `registry.k8s.io`.
-
-The image was successfully downloaded using:
-
-```powershell
-docker pull registry.k8s.io/ingress-nginx/controller:v1.12.1
-```
-
-After recreating the controller Pod, it successfully reached:
-
-```text
-1/1 Running
-```
-
-### Evidence 5 — Ingress Controller
-
-**Insert Screenshot Here**
-
-```powershell
-kubectl get pods -n ingress-nginx
-
-kubectl get ingressclass
-```
-
-**Figure 5: NGINX Ingress Controller and IngressClass**
+This allowed the original configuration to be retained while preparing the new StatefulSet configuration.
 
 ---
 
-## 7. Ingress Routing
+## 4.3 Delete the Old Database Deployment
 
-The `frontend-ingress` resource was configured using the `nginx`
-IngressClass.
+The old PostgreSQL Deployment was deleted as part of the migration process.
 
-The final routing configuration was:
+![Deleting the old database Deployment](evidence/image-9.png)
 
-| Path   | Service      | Port |
-| ------ | ------------ | ---: |
-| `/`    | frontend-svc | 8080 |
-| `/api` | backend-svc  | 8080 |
-
-This allows both the frontend and backend API to be accessed through the
-same HTTP entry point.
-
-### Evidence 6 — Ingress Routing
-
-**Insert Screenshot Here**
-
-```powershell
-kubectl describe ingress frontend-ingress -n dso202-assignment-01
-```
-
-**Figure 6: Ingress Routing Configuration**
-
-The screenshot should clearly show:
-
-```text
-/api → backend-svc:8080
-/    → frontend-svc:8080
-```
+The old Deployment was removed because the database would now be managed using a Kubernetes StatefulSet.
 
 ---
 
-## 8. Frontend Configuration
+## 4.4 Delete the Old PVC
 
-Initially, the frontend was configured with:
+The old PersistentVolumeClaim was also removed before creating the new StatefulSet configuration.
 
-```text
-http://backend-svc:8080
-```
+![Deleting the old PVC](evidence/image-10.png)
 
-This caused the browser to display:
-
-```text
-backend unreachable
-```
-
-The reason was that `backend-svc` is a Kubernetes internal DNS name.
-It can be accessed from inside the Kubernetes cluster, but the user's
-browser cannot directly resolve it.
-
-The frontend configuration was therefore changed to:
-
-```text
-http://localhost:8080
-```
-
-This allowed browser requests to go through the Ingress.
-
-The final rendered `config.js` was verified using:
-
-```powershell
-curl.exe http://localhost:8088/config.js
-```
-
-### Evidence 7 — Frontend Configuration
-
-**Insert Screenshot Here**
-
-The screenshot should show:
-
-```text
-BACKEND_URL: "http://localhost:8080"
-```
-
-This configuration allowed the browser to access:
-
-```text
-http://localhost:8088/api/tasks
-```
-
-through the local Ingress.
+This prepared the environment for the StatefulSet to create its own persistent storage using a `volumeClaimTemplate`.
 
 ---
 
-## 9. Application Testing
+# 5. Creating the StatefulSet
 
-### 9.1 Frontend Test
+A new `statefulset.yaml` file was created for the PostgreSQL database.
 
-The Field Log application was successfully accessed through the local
-Ingress/port-forward.
+![Creating statefulset.yaml](evidence/image-11.png)
 
-**Insert Browser Screenshot Here**
-
-**Figure 8: Final Field Log Application**
-
-The application should show:
-
-```text
-backend + db online
-```
+The StatefulSet provides stable database identity and persistent storage for the PostgreSQL instance. A PersistentVolumeClaim was created through the StatefulSet configuration.
 
 ---
 
-### 9.2 Backend API Test
+## 5.1 Applying the StatefulSet
 
-The `/api/tasks` endpoint was tested using:
+The new StatefulSet was applied to the Kubernetes cluster.
 
-```powershell
-curl.exe http://localhost:8088/api/tasks
-```
+![Applying the StatefulSet](evidence/image-12.png)
 
-The API successfully returned the stored task records.
+![StatefulSet successfully created](evidence/image-13.png)
 
-### Evidence 8 — GET /api/tasks
+After applying the configuration, the PostgreSQL pod was successfully created and started.
 
-**Insert Screenshot Here**
+A new persistent storage volume was also created for the database.
 
-**Figure 9: Successful GET /api/tasks Request**
+![New persistent storage created](evidence/image-14.png)
 
 ---
 
-### 9.3 Database Connectivity Test
+# 6. Verifying the Database Service
 
-The backend health endpoint was tested using:
+The PostgreSQL service was checked to ensure that the database remained accessible through the Kubernetes Service.
 
-```powershell
-curl.exe http://localhost:8088/api/status
-```
+![Verifying database Service](evidence/image-15.png)
 
-The response was:
-
-```json
-{
-  "status": "ok",
-  "db": "connected"
-}
-```
-
-This confirms that the backend was successfully connected to PostgreSQL.
-
-### Evidence 9 — Database Health
-
-**Insert Screenshot Here**
-
-**Figure 10: Successful Database Connectivity Test**
+The database Service continued to provide network access to the PostgreSQL StatefulSet.
 
 ---
 
-## 10. Verification Summary
+# 7. Verifying Backend Database Connection
 
-| Component              | Result       |
-| ---------------------- | ------------ |
-| Frontend Pod           | Running      |
-| Backend Pod            | Running      |
-| PostgreSQL Pod         | Running      |
-| PostgreSQL StatefulSet | 1/1 Ready    |
-| PVC                    | Bound        |
-| Backend Service        | ClusterIP    |
-| Frontend Service       | NodePort     |
-| Database Service       | Headless     |
-| Ingress Controller     | Running      |
-| IngressClass           | nginx        |
-| `/` route              | Frontend     |
-| `/api` route           | Backend      |
-| `/api/tasks`           | Successful   |
-| `/api/status`          | DB connected |
+The backend was then tested to confirm that it could successfully connect to the PostgreSQL database after the migration.
+
+![Backend connection verification](evidence/image-16.png)
+
+![Successful backend database connection](evidence/image-17.png)
+
+The successful response confirmed that the backend was able to communicate with the database after the migration.
 
 ---
 
-## 11. Troubleshooting
+# 8. Testing Database Persistence
 
-### 11.1 Ingress Controller Scheduling
+Database persistence was tested by creating data and then deleting the StatefulSet.
 
-Initially, the Ingress controller could not be scheduled because the
-required node label was missing.
+![Testing database persistence](evidence/image-18.png)
 
-The control-plane node was labelled:
+The StatefulSet was deleted, but the persistent storage remained available. This demonstrated the main benefit of using persistent storage with a StatefulSet: deleting the database pod does not automatically remove the stored database data.
 
-```powershell
-kubectl label node control-plane ingress-ready=true
-```
+---
 
-After applying the label, the controller was successfully scheduled.
+## 8.1 Recreating the StatefulSet
 
-### 11.2 Ingress Controller Image Pull
+The PostgreSQL StatefulSet was recreated after the persistence test.
 
-The controller initially entered:
+![Recreating the StatefulSet](evidence/image-19.png)
+
+![StatefulSet recreated successfully](evidence/image-20.png)
+
+After recreation, the database was able to use the existing persistent storage.
+
+This confirmed that the database data could survive the deletion and recreation of the StatefulSet.
+
+---
+
+# 9. Frontend Migration and Ingress
+
+After completing the database migration, the next part of the assignment was to expose the application through an NGINX Ingress controller.
+
+## 9.1 Installing the Ingress Controller
+
+The NGINX Ingress controller was installed in the Kubernetes cluster.
+
+![Installing Ingress controller](evidence/image-21.png)
+
+![Ingress controller running](evidence/image-22.png)
+
+The Ingress controller was successfully deployed and became ready to process Ingress resources.
+
+---
+
+# 10. Creating the Ingress Resource
+
+An Ingress resource was created for the application.
+
+![Creating the Ingress resource](evidence/image-23.png)
+
+![Ingress resource created](evidence/image-24.png)
+
+The Ingress was configured to route traffic to the appropriate Kubernetes Services.
+
+The routing configuration used:
+
+* `/` → `frontend-svc`
+* `/api` → `backend-svc`
+
+This allowed both the frontend application and backend API to be accessed through the same Ingress endpoint.
+
+---
+
+# 11. Accessing the Application Through Ingress
+
+The Ingress controller was accessed using port forwarding.
+
+![Port-forwarding the Ingress controller](evidence/image-25.png)
+
+![Port-forwarding result](evidence/image-26.png)
+
+![Application accessed through Ingress](evidence/image-27.png)
+
+After port forwarding, the application could be accessed through the local Ingress endpoint.
+
+---
+
+# 12. Verifying the Complete Application
+
+The complete application was tested after configuring the Ingress.
+
+## 12.1 Verify Ingress
+
+The Ingress resource was checked to confirm that it was correctly configured and associated with the NGINX Ingress controller.
+
+![Ingress verification](evidence/image-28.png)
+
+The Ingress showed the expected frontend and backend routing configuration.
+
+![Complete application through Ingress](evidence/image-29.png)
+
+The frontend was successfully accessible through the Ingress, confirming that the Ingress controller was routing requests to the frontend service.
+
+---
+
+# 13. Verifying the StatefulSet and Persistent Volume
+
+The database StatefulSet and persistent storage were checked after the migration.
+
+![StatefulSet and PersistentVolume verification](evidence/image-30.png)
+
+The verification confirmed that:
+
+* The PostgreSQL StatefulSet was running.
+* The database pod was ready.
+* The PersistentVolumeClaim was bound.
+* Persistent storage was available for the database.
+
+This confirmed that the database migration was successfully completed.
+
+---
+
+# 14. Testing the Backend Through Ingress
+
+The backend API was tested through the Ingress rather than accessing the backend service directly.
+
+![Backend API through Ingress](evidence/image-31.png)
+
+The successful API response confirmed that the `/api` path was correctly routed from the Ingress controller to `backend-svc`.
+
+Therefore, the final routing structure was:
 
 ```text
-ErrImagePull
-ImagePullBackOff
-```
-
-The Kubernetes event showed a:
-
-```text
-TLS handshake timeout
-```
-
-The controller image was manually pulled using Docker:
-
-```powershell
-docker pull registry.k8s.io/ingress-nginx/controller:v1.12.1
-```
-
-After the Pod was recreated, it reached:
-
-```text
-1/1 Running
-```
-
-### 11.3 Frontend Backend URL
-
-The frontend initially showed:
-
-```text
-backend unreachable
-```
-
-The problem was caused by the browser trying to access:
-
-```text
-http://backend-svc:8080
-```
-
-This is an internal Kubernetes Service address.
-
-The frontend was changed to use:
-
-```text
-http://localhost:8080
-```
-
-through the Ingress.
-
-After recreating the frontend Pod, the application successfully
-communicated with the backend.
-
-### 11.4 Port Conflict
-
-Port `8080` was already unavailable for local port forwarding.
-
-Therefore, port `8088` was used for testing:
-
-```text
-http://localhost:8088
+Browser
+   │
+   ▼
+NGINX Ingress
+   │
+   ├── / ──────► frontend-svc
+   │
+   └── /api ───► backend-svc
+                    │
+                    ▼
+                 db-svc
+                    │
+                    ▼
+              PostgreSQL
+              StatefulSet
+                    │
+                    ▼
+              PersistentVolume
 ```
 
 ---
 
-## 12. Conclusion
+# 15. Conclusion
 
-Assignment 2 was successfully completed.
+Assignment 2 successfully migrated the PostgreSQL database from a Deployment-based configuration to a StatefulSet with persistent storage. The StatefulSet created a persistent volume for the database, and the persistence test confirmed that the database storage remained available after deleting and recreating the StatefulSet.
 
-The final Kubernetes environment contains the frontend, backend and
-PostgreSQL database components. PostgreSQL is deployed using a StatefulSet
-with persistent storage. Kubernetes Services provide communication between
-the application components, while NGINX Ingress provides a single HTTP
-entry point for frontend and API traffic.
+The NGINX Ingress controller was also successfully installed and configured. An Ingress resource was created to route frontend requests to `frontend-svc` and API requests under `/api` to `backend-svc`.
 
-The final tests confirmed that:
-
-* The frontend application is accessible.
-* The backend API is accessible.
-* `/api/tasks` successfully returns task data.
-* `/api/status` reports that the database is connected.
-* PostgreSQL StatefulSet is running.
-* The database PVC is bound.
-* NGINX Ingress controller is running.
-* `/` routes to the frontend.
-* `/api` routes to the backend.
-
-Therefore, the required Kubernetes deployment and Ingress configuration
-were successfully implemented and verified.
-
----
-
-# Screenshot Placement Checklist
-
-Before submitting, insert the actual screenshots in this order:
-
-1. **Figure 1:** Final Pods, Services, PVC and Ingress
-2. **Figure 2:** PostgreSQL StatefulSet
-3. **Figure 3:** PostgreSQL PVC
-4. **Figure 4:** Backend Service and endpoint
-5. **Figure 5:** NGINX controller and IngressClass
-6. **Figure 6:** Ingress routing
-7. **Figure 7:** Frontend `config.js`
-8. **Figure 8:** Final Field Log application
-9. **Figure 9:** `GET /api/tasks`
-10. **Figure 10:** `GET /api/status`
-
-```
-
-This matches the report already found in your Library, but the version above is cleaned up around **your actual commands and final state**, including the `localhost:8088` testing and the `http://localhost:8080` frontend configuration. :contentReference[oaicite:2]{index=2}
-
-**Important:** don't use the earlier `BACKEND_URL: "http://backend-svc:8080"` as your final frontend evidence. Your final working configuration is `http://localhost:8080`, and your API tests through `localhost:8088` succeeded.
-```
+Finally, the complete application was tested through the Ingress, including the backend API. The successful tests confirmed that the frontend, backend, database, StatefulSet, persistent storage, and Ingress were working together correctly.
